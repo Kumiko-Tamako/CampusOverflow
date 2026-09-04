@@ -196,4 +196,8 @@ npm run dev
 
 ## License
 
+<<<<<<< HEAD
 MIT
+=======
+MIT
+>>>>>>> b6cce15 (test)
