@@ -8,8 +8,8 @@
 | 上下文 | 聚合 | 根实体 | 包含对象 | 对应故事 |
 |:---|:---|:---|:---|:---|
 | identity | **User** | User | 实体：User<br>值对象：StudentId / StaffId / Email / PasswordHash | R01–R04、L01–L04 |
-| qa | **Question** | Question | 实体：Question<br>值对象：Title / Body<br>实体：Vote（题票）/ Comment（题评） | Q01–Q08、V01（题）、V02、C01（题评） |
-| qa | **Answer** | Answer | 实体：Answer / Vote（答票）/ Comment（答评） | A01–A05、C01（答评）、V01（答）、V03/V04 |
+| qa | **Question** | Question | 实体：Question<br>值对象：Title / Body<br>实体：Vote（题票）/ Comment（题评） | Q01–Q04/Q06–Q08、V01（题）、V02、C01（题评） |
+| qa | **Answer** | Answer | 实体：Answer / Vote（答票）/ Comment（答评） | A01–A02/A05、C01（答评）、V01（答）、V03/V04 |
 | qa | **TagCatalog** | TagCatalog | 值对象：Tag（集合） | T01、T02、Q03（合法性校验源） |
 | course | **Course** | Course | 实体：Course / Enrollment | （MVP 仅 course_id 弱关联） |
 | reputation | **ReputationLedger** | ReputationLedger | 实体：LedgerEntry（流水行） | REP01、REP02 |
