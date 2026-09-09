@@ -5,6 +5,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# FastAPI 标准模式：Depends 作为路由参数默认值
+"app/contexts/identity/interfaces/api/**" = ["B008"]
+
 [tool.mypy]
 strict = true
 files = ["app"]
@@ -12,3 +16,6 @@ files = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: 需要本地 PostgreSQL（docker compose up -d），CI 环境跳过",
+]
