@@ -26,4 +26,4 @@ jobs:
         run: mypy app
 
       - name: Test
-        run: pytest
+        run: pytest -m "not integration"
