@@ -42,7 +42,7 @@
 | 2.1 | 注册：User 聚合 + `POST /api/v1/auth/register`（bcrypt 哈希 + 1MiB 请求体上限中间件） | **完成**（PR #1 已 merge；台账 `docs/test/2.1-register.md`，44 测试全绿） |
 | 2.2 | 登录：`POST /api/v1/auth/login`，JWT Access 15min + Refresh 7d 存 Redis（GETDEL 原子轮换、可吊销） | **完成**（PR #2 已 merge） |
 | 2.3 | 认证依赖：`get_current_user` + `require_roles` RBAC（`GET /api/v1/auth/me` 受保护示例） | **完成**（随 2.2 一并交付；台账 `docs/test/2.2-login.md`，67 测试全绿） |
-| 2.4 | 提问：Question 聚合 + `POST /api/v1/questions` | 未开始（`feat/questions` 分支，PR #3） |
+| 2.4 | 提问：Question 聚合 + `POST /api/v1/questions` | **完成**（`feat/questions` 分支待提 PR #3；台账 `docs/test/2.4-question.md`，132 测试全绿，暴力测试前三路 15/15 + 第四路 20/20 PASS，第四路发现的 3 类 500 缺陷已修复） |
 | 2.5 | 列表：`GET /api/v1/questions`（分页，默认按最新排序；投票排序迭代 2 再做） | 未开始（`feat/listing` 分支，PR #4） |
 | 2.6 | 详情：`GET /api/v1/questions/{id}`（标签/答案区迭代 1 恒为空列表，404 不泄露信息） | 未开始（`feat/listing` 分支，PR #4） |
 | 2.7 | 迁移纪律：`alembic revision --autogenerate` → 人工审核脚本才 `upgrade` | 2.1 已执行一次（`ab3c0dd6dd38`，含 roles 种子） |
@@ -58,6 +58,8 @@
 | 2026-09-10 | `docs/PROGRESS.md`：阶段 2 标记进行中，新增阶段 2 明细表（2.1–2.8 状态）；同日增设本"变更记录"节 |
 | 2026-09-10 | **2.4 开发前文档勘误**：[context-map.md](domain/context-map.md) 6 处（关系图 shared 框 + 图内箭头标签、图注①、关系#1/#5、边界规则 4 加"interfaces 层公开供给面"例外）——认证依赖（get_current_user/require_roles）归属从"shared 认证原语"勘正为"identity interfaces/api 公开供给面"；[ADR-002](adr/ADR-002-context-partition.md) 2 处（目录树注释、规则 3）、[glossary.md](domain/glossary.md) 1 处（术语 10"防腐层"）同步同一口径；仓库外 `暴力测试方案.md` 分页参数 `size`→`page_size`（S-04/S-05/S-08，S-05 补记上限 100） |
 | 2026-09-10 | `docs/test/2.2-login.md`：删除第四节重复注记行（与修复后复测注记信息重复的 L47） |
+| 2026-09-10 | **2.4 提问功能完成**（`feat/questions` 分支）：qa 上下文六步法——domain（Title/Body 值对象 + Question 聚合 + QuestionPublished + 仓储端口，不建 errors.py）、application（AskQuestionUseCase）、infra（questions 表迁移 `346e395dfea8`，author_id CASCADE+索引、created_at 索引）、interfaces（qa 路由 201/401/422/413；identity deps 纯增量导出 `CurrentUser` 公开供给面，qa 对 identity.domain 0 import）；新增 33 测试（总 **100 passed**）、ruff 0、mypy 57 文件 0；真实服务暴力测试 Q-01~Q-12 + 附加 3 项 **15/15 PASS**（Q-12 并发 50 帖全 201/ID 唯一）；台账 [2.4-question.md](test/2.4-question.md) |
+| 2026-09-10 | **2.4 第四路暴力测试 3 类 500 缺陷修复**（P-01~P-04，系统性波及 register/login）：新增 `app/shared/text_validation.py`（拒 C0 控制字符（放行 `\t\n\r`）+ lone surrogate，纯标准库共享内核）、`app/shared/exception_handlers.py`（自定义 RequestValidationError 处理器只回 type/loc/msg 不回显 input，治 surrogate 编码崩溃/递归炸弹爆栈；SQLAlchemyError 统一 400 兜底）；`app/main.py` 挂载两处理器；qa Title/Body 与 identity Email/StudentId/StaffId 五个 VO `__post_init__` 接入字符校验；identity schemas 的 RegisterRequest/LoginRequest 加 field_validator（注册用例查重 SQL 先于 VO 构造，NUL 必须在 schema 边界拦；login identifier 直接进查询参数同理；不碰格式，SQL 注入串仍 401）；新增测试 32 条（`tests/test_text_validation.py` 14、`tests/test_validation_handlers.py` 5 进 CI，qa/identity VO 单测 8，questions 集成 4 + login SQLi 守护 1），总 **132 passed**（CI 同款 95 passed）、ruff 0、mypy 59 文件 0；真实服务 verify 8/8 复现点全转 422、`bruteforce_24_extra.py` **20/20 PASS**；台账 [2.4-question.md](test/2.4-question.md) 增第七节 |
 
 ## 相关决策
 
