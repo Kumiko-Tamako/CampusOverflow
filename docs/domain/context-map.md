@@ -19,14 +19,14 @@
 
 ```
                       ┌────────────────────────────┐
-                      │      shared（共享内核）      │
+                      │      shared（技术内核）      │
                       │  DeclarativeBase · 领域事件  │
-                      │  认证原语 · 通用值对象        │
+                      │  engine · redis · 通用中间件  │
                       └──────────────▲─────────────┘
                                      │ ⑤ 共享内核（identity / qa / course 依赖 shared）
         ┌──────────┐                  ┌──┴───────┐                  ┌────────────┐
         │ identity │◀─────①──────────│    qa    │──────②──────────▶│ reputation │
-        └──────────┘   消费认证原语    └─┬──────┘   领域事件（发布-订阅） └────────────┘
+        └──────────┘   消费认证依赖    └─┬──────┘   领域事件（发布-订阅） └────────────┘
                         + author_id 引用│
                                        ├──────────────┐
                                        │ ③            │ ④
@@ -37,7 +37,7 @@
         └──────────┘                                                   │ discovery  │
                                                                        └────────────┘
 
-  ① qa → identity：qa 消费 shared 认证原语（端口来自 identity），并持 author_id 引用用户
+  ① qa → identity：qa 在 interfaces 层消费 identity 公开供给的认证依赖（get_current_user / require_roles），并持 author_id 引用用户
   ② qa → reputation：qa 发布 AnswerAccepted / VoteCast 等领域事件，reputation 订阅记账
   ③ qa → course：Question 持 course_id 引用课程（qa 依赖 course，不 import 其聚合对象）
   ④ qa → discovery：qa 供给持久化视图 / 事件流，discovery 只读建索引，不回写
@@ -47,18 +47,18 @@
 
 | # | 上游 → 下游 | 关系模式 | 协作方式 | 说明 |
 |:--|:---|:---|:---|:---|
-| 1 | identity → qa | 客户-供应商（上游供身份） | qa 通过 `shared` 中的认证原语（JWT 校验、`get_current_user`）取得用户身份，并以 `author_id` 引用用户（不持有 User 聚合对象）；qa 不重复实现认证 | qa 是认证与身份引用的消费方；identity 变更接口需与 qa 协商 |
+| 1 | identity → qa | 客户-供应商（上游供身份） | qa 在自己的 interfaces/api 层依赖 identity **公开供给面**的认证依赖（`deps.get_current_user` / `require_roles`；JWT 校验与用户加载由 identity 内部完成），并以 `author_id` 引用用户（不持有 User 聚合对象）；qa 不重复实现认证。认证依赖的实现归 identity（依赖其用户仓储，无法上收 shared） | qa 是认证与身份引用的消费方；identity 的 interfaces/api 为公开供给面，接口变更需与 qa 协商 |
 | 2 | qa → reputation | 发布语言 / 领域事件（发布-订阅） | qa 发布 `AnswerAccepted`、`VoteCast` 等事件；reputation 订阅消费并记账，不反向依赖 qa | 声誉计算解耦：投票/采纳不等待声誉落账（事件最终一致） |
 | 3 | course → qa | 客户-供应商 | qa 中的问题以 `course_id`（ID 引用）关联课程；qa 不 import course 的聚合对象 | 弱关联：MVP 阶段问题可不挂课程 |
 | 4 | qa → discovery | 客户-供应商（数据供给） | discovery 只读 qa 的持久化视图/事件流建索引；不回写 | discovery 为纯读模型，检索结果跳转 qa 详情 |
-| 5 | identity / qa / course → shared | 共享内核 | 仅共享：DeclarativeBase、领域事件基类、认证原语、通用值对象 | 共享内容必须稳定且小；业务规则禁止放入 shared |
+| 5 | identity / qa / course → shared | 共享内核（技术内核） | 仅共享技术设施：DeclarativeBase、领域事件基类、engine/redis 连接、HTTP 中间件等；**认证依赖不入 shared**（归 identity interfaces/api 公开供给，见关系 1） | 共享内容必须稳定且小；业务规则与上下文能力禁止放入 shared |
 
 ## 四、边界规则（评审要点）
 
 1. **domain 层零框架依赖** —— 各上下文 domain 包不 import FastAPI / SQLAlchemy（ADR-002）
 2. **跨上下文只经应用层** —— 不直连他域仓储；跨聚合协作 = 应用层编排 + 领域事件
 3. **聚合间只以 ID 引用** —— Question 引用 `author_id`（identity）与 `course_id`（course），不持有对方聚合对象
-4. **公共代码必须上收 `shared/`** —— 上下文之间禁止互相 import 私有实现
+4. **公共技术设施上收 `shared/`** —— 上下文的 domain/application 层禁止跨域 import 他上下文私有实现；**例外**：identity 的 interfaces/api（`deps.get_current_user` / `require_roles`）是认证能力的**公开供给面**，下游上下文（如 qa）可在自己的 interfaces 层消费——domain/application 层仍不得跨域 import
 5. **reputation 是事件消费方** —— 声誉流水以 `event_id` 唯一索引保证幂等，事件重复投递不重复计分
 
 ## 五、上下文 ↔ 故事 ↔ 迭代对照

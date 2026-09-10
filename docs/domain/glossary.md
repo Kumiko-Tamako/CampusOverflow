@@ -16,7 +16,7 @@
 | 7 | 仓储 | Repository | 聚合持久化的端口抽象，domain 定义接口、infrastructure 实现 |
 | 8 | 应用服务 / 用例 | Use Case | 应用层编排单元，一个用例 = 一个业务动作 |
 | 9 | 统一语言 | Ubiquitous Language | 团队共享的业务语言，代码/文档/沟通同词同义 |
-| 10 | 防腐层 | Anti-Corruption Layer | 隔离外部模型入侵的转换层（本项目中 shared 认证原语承担此角色） |
+| 10 | 防腐层 | Anti-Corruption Layer | 隔离外部模型入侵的转换层（本项目 qa 仅经 identity interfaces/api 公开供给面消费认证依赖，不触碰 identity 内部实现，即此角色的落地方式） |
 | 11 | 共享内核 | Shared Kernel | 多上下文共享的公共模型子集（如 DeclarativeBase） |
 | 12 | 幂等 | Idempotency | 同一操作重复执行结果不变；声誉流水以 event_id 唯一索引保证 |
 | 13 | 不变式 | Invariant | 聚合内必须恒真成立的业务规则 |

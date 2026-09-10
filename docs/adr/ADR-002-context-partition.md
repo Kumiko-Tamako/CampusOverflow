@@ -22,7 +22,7 @@ app/
 │   ├── course/{domain, application, infrastructure, interfaces}/
 │   ├── reputation/{domain, application, infrastructure, interfaces}/
 │   └── discovery/{domain, application, infrastructure, interfaces}/
-├── shared/        # 通用内核：DeclarativeBase、领域事件、认证原语
+├── shared/        # 技术内核：DeclarativeBase、engine/redis、HTTP 中间件（认证依赖归 identity 公开供给面，不入 shared）
 └── config/        # Pydantic Settings
 ```
 
@@ -30,7 +30,7 @@ app/
 
 1. **domain 层零框架依赖** —— 不 import FastAPI / SQLAlchemy，纯 Python 表达聚合与业务规则
 2. **跨上下文协作只走应用层** —— 不直连他域仓储；跨聚合编排在 UseCase 中完成，配合领域事件（如 `AnswerAccepted`）
-3. **公共代码必须上收到 `shared/`**，禁止上下文之间互相 import 私有实现
+3. **公共技术设施上收到 `shared/`**（Base、engine/redis、HTTP 中间件）；上下文的 domain/application 层禁止跨域 import 他上下文私有实现——**例外**：identity 的 interfaces/api 认证依赖（`get_current_user` / `require_roles`）为公开供给面，下游上下文可在自己的 interfaces 层消费（详见 context-map 边界规则 4）
 
 ## 后果
 
