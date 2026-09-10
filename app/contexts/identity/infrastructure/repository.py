@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import cast
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -44,6 +45,11 @@ class SqlAlchemyUserRepository:
             .join(TeacherModel, TeacherModel.user_id == UserModel.id)
             .where(TeacherModel.staff_id == staff_id)
         )
+        model = (await self._session.execute(stmt)).scalar_one_or_none()
+        return None if model is None else await self._to_domain(model)
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        stmt = select(UserModel).where(UserModel.id == user_id)
         model = (await self._session.execute(stmt)).scalar_one_or_none()
         return None if model is None else await self._to_domain(model)
 

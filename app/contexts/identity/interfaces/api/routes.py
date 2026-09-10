@@ -1,26 +1,54 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contexts.identity.application.commands import RegisterCommand
+from app.config.settings import get_settings
+from app.contexts.identity.application.commands import LoginCommand, RegisterCommand
+from app.contexts.identity.application.login_use_case import LoginUseCase
+from app.contexts.identity.application.ports import ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
 from app.contexts.identity.application.register_use_case import RegisterUseCase
 from app.contexts.identity.domain.errors import (
     EmailAlreadyExistsError,
     IdentityAlreadyExistsError,
     IdentityDomainError,
+    InvalidCredentialsError,
 )
+from app.contexts.identity.domain.user import User
 from app.contexts.identity.infrastructure.password_hasher import BcryptPasswordHasher
+from app.contexts.identity.infrastructure.refresh_store import RedisRefreshTokenStore
 from app.contexts.identity.infrastructure.repository import SqlAlchemyUserRepository
-from app.contexts.identity.interfaces.api.schemas import RegisterRequest, RegisterResponse
+from app.contexts.identity.infrastructure.token_service import JwtTokenService
+from app.contexts.identity.interfaces.api.deps import get_current_user
+from app.contexts.identity.interfaces.api.schemas import (
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    RegisterResponse,
+    TokenPairResponse,
+)
 from app.shared.engine import get_session
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
+# 模块级单例：令牌服务与刷新存储无请求级状态
+_token_service = JwtTokenService(get_settings().jwt_secret)
+_refresh_store = RedisRefreshTokenStore()
 
-def _build_use_case(session: AsyncSession) -> RegisterUseCase:
-    """组装用例：仓储 + 哈希器依赖注入（后续迁入统一 DI 容器）。"""
+
+def _build_register_use_case(session: AsyncSession) -> RegisterUseCase:
+    """组装注册用例：仓储 + 哈希器依赖注入。"""
     return RegisterUseCase(SqlAlchemyUserRepository(session), BcryptPasswordHasher())
+
+
+def _build_login_use_case(session: AsyncSession) -> LoginUseCase:
+    """组装登录用例：仓储 + 哈希器 + 令牌服务 + 刷新存储。"""
+    return LoginUseCase(
+        SqlAlchemyUserRepository(session),
+        BcryptPasswordHasher(),
+        _token_service,
+        _refresh_store,
+    )
 
 
 @router.post(
@@ -33,7 +61,7 @@ async def register(
     payload: RegisterRequest,
     session: AsyncSession = Depends(get_session),
 ) -> RegisterResponse:
-    use_case = _build_use_case(session)
+    use_case = _build_register_use_case(session)
     command = RegisterCommand(
         role=payload.role,
         email=payload.email,
@@ -54,6 +82,92 @@ async def register(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
+    return RegisterResponse(
+        id=user.id,
+        role=user.role,
+        email=user.email.value,
+        student_id=user.student_id.value if user.student_id is not None else None,
+        staff_id=user.staff_id.value if user.staff_id is not None else None,
+        created_at=user.created_at,
+    )
+
+
+@router.post(
+    "/login",
+    response_model=TokenPairResponse,
+    summary="登录（学号/工号 + 密码 → JWT 双令牌）",
+)
+async def login(
+    payload: LoginRequest,
+    session: AsyncSession = Depends(get_session),
+) -> TokenPairResponse:
+    use_case = _build_login_use_case(session)
+    try:
+        result = await use_case.execute(
+            LoginCommand(identifier=payload.identifier, password=payload.password)
+        )
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+
+    return TokenPairResponse(
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+        expires_in=int(ACCESS_TOKEN_TTL.total_seconds()),
+    )
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenPairResponse,
+    summary="刷新令牌（轮换：旧 Refresh 原子消耗，签发新对）",
+)
+async def refresh(
+    payload: RefreshRequest,
+    session: AsyncSession = Depends(get_session),
+) -> TokenPairResponse:
+    decoded = _token_service.decode_refresh(payload.refresh_token)
+    if decoded is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌无效或已过期")
+    user_id, jti = decoded
+    consumed = await _refresh_store.consume(jti)
+    if consumed is None or consumed != user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌已失效")
+    user = await SqlAlchemyUserRepository(session).get_by_id(user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+
+    access_token = _token_service.issue_access(user)
+    refresh_token, new_jti = _token_service.issue_refresh(user)
+    await _refresh_store.save(new_jti, user.id, REFRESH_TOKEN_TTL)
+    return TokenPairResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=int(ACCESS_TOKEN_TTL.total_seconds()),
+    )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="退出登录（吊销 Refresh 令牌，幂等 204）",
+)
+async def logout(payload: RefreshRequest) -> Response:
+    decoded = _token_service.decode_refresh(payload.refresh_token)
+    if decoded is not None:
+        _, jti = decoded
+        await _refresh_store.revoke(jti)
+    # 幂等：无效/已吊销令牌同样 204，不暴露令牌状态
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/me",
+    response_model=RegisterResponse,
+    summary="当前用户信息（受保护：需 Bearer Access 令牌）",
+)
+async def me(user: User = Depends(get_current_user)) -> RegisterResponse:
     return RegisterResponse(
         id=user.id,
         role=user.role,

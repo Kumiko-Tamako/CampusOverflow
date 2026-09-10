@@ -20,3 +20,7 @@ class IdentityRequiredError(IdentityDomainError):
 
 class UnknownRoleError(IdentityDomainError):
     """未知的注册角色。"""
+
+
+class InvalidCredentialsError(IdentityDomainError):
+    """登录凭证无效：统一 401，不区分"用户不存在/密码错误"（防枚举）。"""
