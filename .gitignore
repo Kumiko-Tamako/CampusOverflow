@@ -7,3 +7,9 @@ __pycache__/
 .env
 htmlcov/
 .coverage
+
+# SSH keys / local secrets - never commit
+id_rsa*
+id_ed25519*
+*.pem
+Gzy13277260123*
