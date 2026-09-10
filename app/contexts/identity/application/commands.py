@@ -12,3 +12,11 @@ class RegisterCommand:
     password: str
     student_id: str | None = None
     staff_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LoginCommand:
+    """登录用例的输入命令。"""
+
+    identifier: str
+    password: str

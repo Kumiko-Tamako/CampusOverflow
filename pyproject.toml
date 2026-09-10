@@ -17,5 +17,5 @@ files = ["app"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "integration: 需要本地 PostgreSQL（docker compose up -d），CI 环境跳过",
+    "integration: 需要本地 PostgreSQL + Redis（docker compose up -d），CI 环境跳过",
 ]

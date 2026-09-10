@@ -18,3 +18,9 @@ class BcryptPasswordHasher:
         salt = bcrypt.gensalt(rounds=_ROUNDS)
         digest = await asyncio.to_thread(bcrypt.hashpw, plain.encode("utf-8"), salt)
         return digest.decode("utf-8")
+
+    async def verify(self, plain: str, hashed: str) -> bool:
+        valid = await asyncio.to_thread(
+            bcrypt.checkpw, plain.encode("utf-8"), hashed.encode("utf-8")
+        )
+        return bool(valid)

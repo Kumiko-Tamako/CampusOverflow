@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Protocol
+from uuid import UUID
 
 from app.contexts.identity.domain.user import User
 
@@ -18,6 +19,10 @@ class UserRepository(Protocol):
 
     async def get_by_staff_id(self, staff_id: str) -> User | None:
         """按工号查询用户。"""
+        ...
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        """按用户 ID 查询（get_current_user 使用）。"""
         ...
 
     async def add(self, user: User) -> None:
