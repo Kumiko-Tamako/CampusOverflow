@@ -38,4 +38,4 @@
 | 决策 | 说明 |
 |:---|:---|
 | 限界上下文纵切 | 按 5 个子域分包：identity / qa / course / reputation / discovery，每个上下文内再分 domain / application / infrastructure / interfaces |
-当前版本：v0.1.0（基线）
+当前版本：v1.0.0（开发中）
