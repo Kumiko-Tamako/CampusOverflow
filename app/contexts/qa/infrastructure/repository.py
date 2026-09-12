@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.qa.domain.question import Question
@@ -40,4 +40,32 @@ class SqlAlchemyQuestionRepository:
             body=Body(model.body),
             author_id=model.author_id,
             created_at=model.created_at,
+        )
+
+    async def list_paginated(self, page: int, page_size: int) -> tuple[list[Question], int]:
+        # 总条数与当前页同一事务快照，保证分页元数据一致
+        total = (
+            await self._session.execute(select(func.count()).select_from(QuestionModel))
+        ).scalar_one()
+        stmt = (
+            select(QuestionModel)
+            # created_at 同微秒并发发帖（Q-12 连发 50 帖场景）顺序不定，
+            # id 作 tiebreaker 保证确定性全序，跨页不重复/不漏项
+            .order_by(QuestionModel.created_at.desc(), QuestionModel.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        models = (await self._session.execute(stmt)).scalars().all()
+        return (
+            [
+                Question(
+                    id=model.id,
+                    title=Title(model.title),
+                    body=Body(model.body),
+                    author_id=model.author_id,
+                    created_at=model.created_at,
+                )
+                for model in models
+            ],
+            total,
         )

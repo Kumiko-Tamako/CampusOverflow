@@ -99,7 +99,14 @@ def test_tampered_signature_rejected() -> None:
     header_payload, sep, signature = token.rpartition(".")
     middle = len(signature) // 2
     replacement = "A" if signature[middle] != "A" else "B"
-    tampered = f"{header_payload}{sep}{signature[:middle]}{replacement}{signature[middle + 1 :]}"
+    tampered_sig = f"{signature[:middle]}{replacement}{signature[middle + 1 :]}"
+    tampered = f"{header_payload}{sep}{tampered_sig}"
+    # 确定性证据（非概率性回归仪式）：中段 6 bit 全部承载数据，
+    # 篡改后解码字节必与原签名不同——此断言失败即说明篡改落在了填充位
+    pad = "=" * (-len(signature) % 4)
+    assert base64.urlsafe_b64decode(
+        signature + pad
+    ) != base64.urlsafe_b64decode(tampered_sig + pad)
     assert service.verify_access(tampered) is None
 
 
