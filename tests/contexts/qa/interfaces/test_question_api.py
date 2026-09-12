@@ -221,3 +221,157 @@ async def test_recursive_bomb_returns_422(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 422
     _assert_no_input_echo(resp)
+
+
+# ============================================================
+# 2.5 列表 + 2.6 详情（访客可用，全部无鉴权头）
+# ============================================================
+
+
+async def test_list_guest_access_whitelist(client: httpx.AsyncClient) -> None:
+    """S-01/S-12：访客可用；响应与条目均为白名单字段（无正文/密码哈希/内部字段）。"""
+    resp = await client.get("/api/v1/questions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"items", "total", "page", "page_size", "total_pages"}
+    assert data["page"] == 1 and data["page_size"] == 20
+    for item in data["items"]:
+        assert set(item.keys()) == {"id", "title", "author_id", "created_at"}
+    if data["items"]:
+        assert data["total_pages"] == -(-data["total"] // data["page_size"])
+
+
+async def test_list_page_non_positive_returns_422(client: httpx.AsyncClient) -> None:
+    """S-02/S-04 族：page 非法 → 422，不 500，不回显输入。"""
+    for bad in ("0", "-1"):
+        resp = await client.get("/api/v1/questions", params={"page": bad})
+        assert resp.status_code == 422
+        _assert_no_input_echo(resp)
+
+
+async def test_list_page_beyond_total_returns_200_empty(client: httpx.AsyncClient) -> None:
+    """S-03（约定）：超总页 → 200 空列表，page 原样回显。"""
+    resp = await client.get("/api/v1/questions", params={"page": 999999})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"] == []
+    assert data["page"] == 999999
+
+
+async def test_list_page_size_non_positive_returns_422(client: httpx.AsyncClient) -> None:
+    """S-04：page_size ≤ 0 → 422。"""
+    for bad in ("0", "-5"):
+        resp = await client.get("/api/v1/questions", params={"page_size": bad})
+        assert resp.status_code == 422
+        _assert_no_input_echo(resp)
+
+
+async def test_list_page_size_over_limit_422_and_boundary_100_ok(
+    client: httpx.AsyncClient,
+) -> None:
+    """S-05：page_size 上限 100 → 超限 422；边界 100 恰好 200。"""
+    for bad in (100000, 101):
+        resp = await client.get("/api/v1/questions", params={"page_size": bad})
+        assert resp.status_code == 422
+        _assert_no_input_echo(resp)
+    resp = await client.get("/api/v1/questions", params={"page_size": 100})
+    assert resp.status_code == 200
+    assert resp.json()["page_size"] == 100
+
+
+async def test_list_ignores_unknown_sort_param(client: httpx.AsyncClient) -> None:
+    """S-07（A 方案约定）：迭代 1 无排序功能，未知 query 参数被忽略——
+    sort 不进 SQL、无注入面，仍 200 且保持"最新优先"默认序，不 500。"""
+    token, _ = await _register_and_login(client)
+    r = await client.post("/api/v1/questions", json=_question_payload(), headers=_auth(token))
+    assert r.status_code == 201
+    posted_id = r.json()["id"]
+    resp = await client.get("/api/v1/questions", params={"sort": "(SELECT 1)"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["page"] == 1 and data["page_size"] == 20
+    assert data["items"][0]["id"] == posted_id
+
+
+async def test_list_pagination_exact_slicing_s08(client: httpx.AsyncClient) -> None:
+    """S-08：连发 25 帖（本测试为全表最新块）→ 第 1 页恰为其最新 20 帖，
+    第 2 页补足其余 5 帖，跨页不重复。"""
+    token, _ = await _register_and_login(client)
+    ids: list[str] = []
+    for i in range(25):
+        r = await client.post(
+            "/api/v1/questions",
+            json=_question_payload(title=f"S08 分页标题 {i:02d}"),
+            headers=_auth(token),
+        )
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+
+    d1 = (await client.get("/api/v1/questions", params={"page": 1, "page_size": 20})).json()
+    assert d1["total"] >= 25 and d1["total_pages"] >= 2
+    assert len(d1["items"]) == 20
+    ids1 = {item["id"] for item in d1["items"]}
+    assert ids1 == set(ids[5:])  # 最新 20 帖（ids[0] 最旧）
+
+    d2 = (await client.get("/api/v1/questions", params={"page": 2, "page_size": 20})).json()
+    ids2 = {item["id"] for item in d2["items"]}
+    assert set(ids[:5]) <= ids2  # 剩余 5 帖在第 2 页
+    assert not ids1 & ids2  # 跨页无重复
+
+
+async def test_posted_question_immediately_first_in_list(
+    client: httpx.AsyncClient,
+) -> None:
+    """S-14/US-Q04：发布后立即可见且居首（page_size=1 的第 1 项即新帖）。"""
+    token, _ = await _register_and_login(client)
+    r = await client.post(
+        "/api/v1/questions",
+        json=_question_payload(title="立即可见标题"),
+        headers=_auth(token),
+    )
+    posted_id = r.json()["id"]
+    resp = await client.get("/api/v1/questions", params={"page": 1, "page_size": 1})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["page_size"] == 1 and len(data["items"]) == 1
+    assert data["items"][0]["id"] == posted_id
+
+
+async def test_detail_returns_full_whitelist_fields(client: httpx.AsyncClient) -> None:
+    """S-09：详情字段完整；tags/answers 迭代 1 恒为空列表。"""
+    token, user_id = await _register_and_login(client)
+    r = await client.post(
+        "/api/v1/questions",
+        json=_question_payload(title="详情标题", body="详情正文明细"),
+        headers=_auth(token),
+    )
+    assert r.status_code == 201
+    qid = r.json()["id"]
+    resp = await client.get(f"/api/v1/questions/{qid}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {
+        "id", "title", "body", "author_id", "created_at", "tags", "answers",
+    }
+    assert data["title"] == "详情标题"
+    assert data["body"] == "详情正文明细"
+    assert data["author_id"] == user_id
+    assert data["tags"] == [] and data["answers"] == []
+
+
+async def test_detail_missing_returns_404_without_internal_info(
+    client: httpx.AsyncClient,
+) -> None:
+    """S-10：合法 UUID 但不存在 → 404，只回业务语义，无内部错误栈。"""
+    resp = await client.get(f"/api/v1/questions/{uuid.uuid4()}")
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "问题不存在"}
+    assert "Traceback" not in resp.text
+
+
+async def test_detail_invalid_id_returns_422(client: httpx.AsyncClient) -> None:
+    """S-11：格式非法 ID → 422（路径校验拦截），不 500。"""
+    for bad in ("abc", "not-a-uuid"):
+        resp = await client.get(f"/api/v1/questions/{bad}")
+        assert resp.status_code == 422
+        _assert_no_input_echo(resp)
